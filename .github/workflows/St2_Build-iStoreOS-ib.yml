@@ -54,7 +54,7 @@ jobs:
       network_settings: ${{ steps.prepare.outputs.network_settings }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: ⚙️ 读取构建配置和输入默认值
         id: prepare
