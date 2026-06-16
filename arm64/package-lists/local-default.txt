@@ -1,0 +1,7 @@
+# files/packages 中默认集成的本地包
+# 空行和 # 开头的注释会被 build24.sh 忽略。
+
+luci-app-amlogic
+luci-i18n-amlogic-zh-cn
+luci-app-ramfree
+luci-i18n-ramfree-zh-cn

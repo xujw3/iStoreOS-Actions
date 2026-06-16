@@ -1,0 +1,5 @@
+# 固件构建必要包和排除项
+# 空行和 # 开头的注释会被 build24.sh 忽略。
+
+-libustream-mbedtls
+perlbase-time

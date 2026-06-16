@@ -1,4 +1,5 @@
 #!/bin/sh
+set -eu
 
 BASE_DIR="extra-packages"
 TEMP_DIR="$BASE_DIR/temp-unpack"
@@ -6,7 +7,7 @@ TARGET_DIR="packages"
 
 # 清理旧的目录
 rm -rf "$TEMP_DIR"
-mkdir -p "$TEMP_DIR"
+mkdir -p "$TEMP_DIR" "$TARGET_DIR"
 
 # 解压 .run 文件
 for run_file in "$BASE_DIR"/*.run; do

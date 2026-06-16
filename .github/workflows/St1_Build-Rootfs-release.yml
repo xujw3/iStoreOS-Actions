@@ -29,15 +29,21 @@ on:
         required: true
         default: '192.168.5.1'
 
-env:
-  VERSION: 24.10.6
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
+
+    - name: ⚙️ 读取构建配置
+      id: build_config
+      run: |
+        VERSION=$(grep '^VERSION=' .github/build-config.env | cut -d= -f2-)
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
     - name: ⚙️ 设置可执行权限
       run: | 
@@ -46,23 +52,16 @@ jobs:
 
     - name: ⚙️ 设置IP、网关和版本号
       run: |
-        sed -i "s/版本号/${{ env.VERSION }}/g" "./files/etc/uci-defaults/99-custom.sh"
-        sed -i "s/版本号/${{ env.VERSION }}/g" "./files/etc/banner"
-        echo "当前网络配置路径"
         CONFIG_PATH="./files/etc/uci-defaults/99-custom.sh"
-        echo $CONFIG_PATH
-        if [ "${{ inputs.network_settings }}" = "static" ]; then
-           echo "删除网络设置-dhcp"
-           sed -i '34,111d' "$CONFIG_PATH"
-           echo "替换默认配置"
-           sed -i "/ipaddr/s/192.168.5.88/${{ inputs.ipaddr }}/g" "$CONFIG_PATH"
-           sed -i "/gateway/s/192.168.5.1/${{ inputs.gateway }}/g" "$CONFIG_PATH"
-        else
-           echo "删除网络设置-static"
-           sed -i '26,32d' "$CONFIG_PATH"
-        fi
+        sed -i "s/版本号/${{ steps.build_config.outputs.version }}/g" "$CONFIG_PATH"
+        sed -i "s/版本号/${{ steps.build_config.outputs.version }}/g" "./files/etc/banner"
+        sed -i "s/__NETWORK_SETTINGS__/${{ inputs.network_settings }}/g" "$CONFIG_PATH"
+        sed -i "s/__STATIC_IPADDR__/${{ inputs.ipaddr }}/g" "$CONFIG_PATH"
+        sed -i "s/__STATIC_GATEWAY__/${{ inputs.gateway }}/g" "$CONFIG_PATH"
+        echo "当前网络配置：${{ inputs.network_settings }}"
+        echo "当前网络配置路径：$CONFIG_PATH"
         echo "输出配置"
-        cat $CONFIG_PATH
+        cat "$CONFIG_PATH"
 
     - name: ⏬ 安装依赖
       run: |
@@ -71,14 +70,17 @@ jobs:
 
     - name: ⏬ 下载 ImageBuilder
       run: |
-        curl -L -o imagebuilder.tar.zst https://github.com/Kwonelee/iStoreOS-Actions/releases/download/iStoreOS-ImageBuilder/${{ inputs.build_version }}-istoreos-imagebuilder-armsr-armv8.Linux-x86_64.tar.zst
+        curl --fail --location --show-error --retry 3 --retry-delay 5 \
+          -o imagebuilder.tar.zst \
+          https://github.com/Kwonelee/iStoreOS-Actions/releases/download/iStoreOS-ImageBuilder/${{ inputs.build_version }}-istoreos-imagebuilder-armsr-armv8.Linux-x86_64.tar.zst
+        sha256sum imagebuilder.tar.zst
         tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
         mv istoreos-imagebuilder-* imagebuilder
 
     - name: ⏬ 复制并设置必备文件
       run: |
-        cp arm64/{build24.sh,Makefile} imagebuilder/
-        #cp arm64/repositories.conf imagebuilder/
+        cp arm64/{build24.sh,Makefile,repositories.conf} imagebuilder/
+        cp -r arm64/package-lists imagebuilder/
         cp shell/{prepare-packages.sh,custom-packages.sh} imagebuilder/
         find files/packages/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
         
@@ -117,9 +119,9 @@ jobs:
     - name: 🚀 上传到 Release
       uses: softprops/action-gh-release@v2.2.1
       with:
-        tag_name: iStoreOS-${{ env.VERSION }}-RELEASE-${{ inputs.network_settings }}
+        tag_name: iStoreOS-${{ steps.build_config.outputs.version }}-RELEASE-${{ inputs.network_settings }}
         body: |
-          📌 版本： iStoreOS-${{ env.VERSION }}-RELEASE（imagebuilder构建，插件集成与官方一致）
+          📌 版本： iStoreOS-${{ steps.build_config.outputs.version }}-RELEASE（imagebuilder构建，插件集成与官方一致）
           
           📂 来源： https://fw.koolcenter.com/iStoreOS/ib/armsr/
           
@@ -135,4 +137,4 @@ jobs:
         files: |
           imagebuilder/bin/targets/armsr/armv8/*generic-rootfs.tar.gz
       env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}

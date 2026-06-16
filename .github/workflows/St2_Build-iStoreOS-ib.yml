@@ -239,22 +239,30 @@ on:
           - static
           - dhcp
 
-env:
-  VERSION: 24.10.6
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: ⚙️ 读取构建配置
+        id: build_config
+        run: |
+          VERSION=$(grep '^VERSION=' .github/build-config.env | cut -d= -f2-)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: ⏬ 下载 rootfs.tar.gz
         run: |
           echo "📦 正在下载预构建 rootfs"
           mkdir -p bin/targets/armsr/armv8
-          curl -L -o bin/targets/armsr/armv8/openwrt-armvirt-64-default-rootfs.tar.gz \
-            https://github.com/${{ github.actor }}/iStoreOS-Actions/releases/download/iStoreOS-${{ env.VERSION }}-${{ inputs.openwrt_rootfs }}-${{ inputs.network_settings }}/istoreos-armsr-armv8-generic-rootfs.tar.gz
+          curl --fail --location --show-error --retry 3 --retry-delay 5 \
+            -o bin/targets/armsr/armv8/openwrt-armvirt-64-default-rootfs.tar.gz \
+            https://github.com/${{ github.repository }}/releases/download/iStoreOS-${{ steps.build_config.outputs.version }}-${{ inputs.openwrt_rootfs }}-${{ inputs.network_settings }}/istoreos-armsr-armv8-generic-rootfs.tar.gz
+          sha256sum bin/targets/armsr/armv8/openwrt-armvirt-64-default-rootfs.tar.gz
 
       - name: 🔍 查找rootfs.tar.gz所在路径
         id: find_rootfs
@@ -268,7 +276,7 @@ jobs:
           echo "file=$ROOTFS_FILE" >> $GITHUB_OUTPUT
 
       - name: 🧱 打包iStoreOS固件
-        uses: ophub/amlogic-s9xxx-openwrt@main
+        uses: ophub/amlogic-s9xxx-openwrt@c27a1dec98f1cd8f0212297e629243b35fa98534
         with:
           openwrt_path: ${{ steps.find_rootfs.outputs.file }}
           openwrt_board: ${{ inputs.openwrt_board }}
@@ -284,7 +292,7 @@ jobs:
           for FILE in ${{ env.PACKAGED_OUTPUTPATH }}/*.img.gz; do
             echo "Processing file: $FILE"
             FILENAME=$(basename "$FILE")
-            NEW_FILENAME=$(echo "$FILENAME" | sed 's/openwrt/istoreos_${{ env.VERSION }}/g')
+            NEW_FILENAME=$(echo "$FILENAME" | sed 's/openwrt/istoreos_${{ steps.build_config.outputs.version }}/g')
             if [ "$FILENAME" != "$NEW_FILENAME" ]; then
               mv "$FILE" "${{ env.PACKAGED_OUTPUTPATH }}/$NEW_FILENAME"
               echo "Renamed $FILENAME to $NEW_FILENAME"
@@ -296,8 +304,8 @@ jobs:
       - name: 🚀 上传到 Release
         uses: softprops/action-gh-release@v2.2.1
         with:
-          tag_name: iStoreOS-${{ env.VERSION }}-${{ inputs.openwrt_rootfs }}-${{ inputs.network_settings }}
+          tag_name: iStoreOS-${{ steps.build_config.outputs.version }}-${{ inputs.openwrt_rootfs }}-${{ inputs.network_settings }}
           files: |
             ${{ env.PACKAGED_OUTPUTPATH }}/*.img.gz
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}

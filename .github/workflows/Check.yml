@@ -1,0 +1,37 @@
+name: ✅ Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Shell syntax check
+        run: |
+          bash -n arm64/build24.sh shell/*.sh
+          sh -n files/etc/uci-defaults/99-custom.sh files/etc/rc.local
+
+      - name: Local IPK checksum check
+        run: sha256sum -c files/packages/SHA256SUMS
+
+      - name: Repository consistency check
+        run: python3 scripts/check_workflows.py
+
+      - name: Whitespace check
+        run: |
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            git diff --check HEAD^ HEAD
+          else
+            git diff --check
+          fi

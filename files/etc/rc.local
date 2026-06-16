@@ -1,7 +1,10 @@
 # Put your custom commands here that should be executed once
 # the system init finished. By default this file does nothing.
 
-# 新增：重新挂载根文件系统为可读写状态
-mount -o remount,rw /
+# 仅在根文件系统为只读时重新挂载为可读写。
+# 用于兼容部分设备通过晶晨宝盒写入 eMMC 后根分区只读的问题。
+if mount | grep ' on / ' | grep -q '[(,]ro[,)]'; then
+    mount -o remount,rw /
+fi
 
 exit 0

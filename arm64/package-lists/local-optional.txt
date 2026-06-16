@@ -1,0 +1,15 @@
+# files/packages 中可选的本地包示例
+# 如需启用，把对应包名复制到 local-default.txt 或 custom-packages.sh。
+# 空行和 # 开头的注释会被 build24.sh 忽略。
+
+# lucky
+# luci-app-lucky
+# luci-i18n-lucky-zh-cn
+# luci-app-adguardhome
+# luci-i18n-adguardhome-zh-cn
+# openlist2
+# luci-app-openlist2
+# luci-i18n-openlist2-zh-cn
+# filebrowser
+# luci-app-filebrowser-go
+# luci-i18n-filebrowser-go-zh-cn
