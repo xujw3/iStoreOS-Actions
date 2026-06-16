@@ -123,15 +123,23 @@ flowchart TD
 
 ```text
 .
-├── .github/workflows/
-│   ├── St1_Build-Rootfs-release.yml   # 构建通用 rootfs 并上传 Release
-│   ├── St2_Build-iStoreOS-ib.yml      # 使用 St1 rootfs 打包指定设备 .img.gz
-│   └── StX_Build-iStoreOS-src.yml     # 备用：下载外部 rootfs 后打包 SNAPSHOT
+├── .github/
+│   ├── build-config.env                # 构建版本单一来源
+│   └── workflows/
+│       ├── Check.yml                    # 轻量 CI：语法、校验清单、一致性检查
+│       ├── _Pack-iStoreOS.yml           # St2/StX 共用打包 workflow
+│       ├── St1_Build-Rootfs-release.yml # 构建通用 rootfs 并上传 Release
+│       ├── St2_Build-iStoreOS-ib.yml    # 使用 St1 rootfs 打包指定设备 .img.gz
+│       └── StX_Build-iStoreOS-src.yml   # 备用：下载外部 rootfs 后打包 SNAPSHOT
 ├── arm64/
 │   ├── build24.sh                     # rootfs 主构建入口：加载包清单、整理第三方包、make image
 │   ├── package-lists/                  # 官方包、本地默认包、可选包清单
 │   ├── Makefile                       # ImageBuilder 内使用的 Makefile 变体
 │   └── repositories.conf              # OpenWrt 远程软件源和本地 packages 源
+├── config/
+│   └── openwrt_boards.txt              # St2/StX 支持设备型号单一来源
+├── scripts/
+│   └── check_workflows.py              # workflow、版本、设备列表和包清单一致性检查
 ├── shell/
 │   ├── custom-packages.sh             # 仓库外第三方插件开关、排除组件开关
 │   └── prepare-packages.sh            # 整理 .run / .ipk 到 ImageBuilder packages/
@@ -156,9 +164,12 @@ flowchart TD
 | `files/etc/uci-defaults/99-custom.sh` | 设置首次启动网络、主机名、语言、时区、防火墙、SSH/ttyd 等 |
 | `files/etc/rc.local` | 系统每次启动完成后的简单命令 |
 | `files/etc/banner` | 修改 SSH/TTY 登录欢迎信息 |
+| `.github/build-config.env` | 修改 iStoreOS/OpenWrt 当前构建版本 |
+| `.github/workflows/_Pack-iStoreOS.yml` | 修改 St2/StX 共用打包流程、打包 action 固定版本、Release 上传规则 |
 | `.github/workflows/St1_Build-Rootfs-release.yml` | 修改 rootfs 构建版本、初始网络输入、Release 规则 |
-| `.github/workflows/St2_Build-iStoreOS-ib.yml` | 修改设备列表、内核版本选项、打包参数 |
-| `.github/workflows/StX_Build-iStoreOS-src.yml` | 修改备用 SNAPSHOT 打包设备列表或外部 rootfs 来源 |
+| `.github/workflows/St2_Build-iStoreOS-ib.yml` | 修改 St1 rootfs 打包入口参数 |
+| `.github/workflows/StX_Build-iStoreOS-src.yml` | 修改备用 SNAPSHOT 打包入口参数或外部 rootfs 来源 |
+| `config/openwrt_boards.txt` | 添加、删除或校验 St2/StX 支持的 `openwrt_board` 值 |
 | `arm64/repositories.conf` | 升级 OpenWrt 版本、切换远程包源、更新 kmods URL |
 
 ---
@@ -224,11 +235,11 @@ St1 成功后再执行 St2：
 1. 进入 **Actions**。
 2. 选择 **💿 St2_Build-iStoreOS-ib**。
 3. 点击 **Run workflow**。
-4. 选择设备型号、内核版本、rootfs 类型和网络模式。
+4. 输入设备型号、选择内核版本、rootfs 类型和网络模式。
 
 | 参数 | 推荐值 | 说明 |
 |---|---|---|
-| `openwrt_board` | 按你的设备选择 | 设备板型，必须与实际设备匹配 |
+| `openwrt_board` | `s905d_s905x3_s912_s922x-ct2000` | 设备板型，必须是 `config/openwrt_boards.txt` 中的一行 |
 | `openwrt_kernel` | `6.6.y` | 内核系列，可选 `6.6.y`、`6.12.y`、`6.18.y` |
 | `auto_kernel` | `true` | 自动使用可用的最新稳定内核，通常保持默认 |
 | `openwrt_rootfs` | `RELEASE` | 当前只提供 `RELEASE` |
@@ -910,7 +921,7 @@ uci commit
 files/etc/banner
 ```
 
-其中 `版本号` 会在 St1 中替换为 workflow 的 `env.VERSION`，例如 `24.10.6`。
+其中 `版本号` 会在 St1 中替换为 `.github/build-config.env` 的 `VERSION`，例如 `24.10.6`。
 
 ### 修改 rootfs overlay
 
@@ -929,22 +940,21 @@ files/usr/bin/tool.sh    -> /usr/bin/tool.sh
 
 ## 💿 添加或修改支持设备
 
-设备列表主要在两个 workflow 中维护：
+设备列表统一维护在：
 
 ```text
-.github/workflows/St2_Build-iStoreOS-ib.yml
-.github/workflows/StX_Build-iStoreOS-src.yml
+config/openwrt_boards.txt
 ```
 
-两者的 `openwrt_board.options` 基本相同。
+St2 和 StX 的 `openwrt_board` 输入改为字符串，并在共用打包 workflow `_Pack-iStoreOS.yml` 中校验该值必须存在于 `config/openwrt_boards.txt`。这样新增设备只需要维护一个列表，避免两个 workflow 的下拉选项不同步。
 
 ### 新增一个 ophub 已支持的设备
 
 1. 确认上游 `ophub/amlogic-s9xxx-openwrt` 已支持该 `openwrt_board` 值。
-2. 在 St2 的 `openwrt_board.options` 中加入该值。
-3. 如果也希望备用 SNAPSHOT 支持，在 StX 中同步加入。
-4. 更新 README 的 [支持设备](#-支持设备) 表。
-5. 如果该设备网口顺序特殊，更新 `files/etc/uci-defaults/99-custom.sh` 的网口映射逻辑。
+2. 在 `config/openwrt_boards.txt` 中新增一行。
+3. 更新 README 的 [支持设备](#-支持设备) 表。
+4. 如果该设备网口顺序特殊，更新 `files/etc/uci-defaults/99-custom.sh` 的网口映射逻辑。
+5. 运行 `python scripts/check_workflows.py` 确认设备列表无重复且 workflow 仍调用共用打包流程。
 
 ### 新增一个上游不支持的设备
 
@@ -966,7 +976,7 @@ St2 / StX 当前默认设备：
 default: "s905d_s905x3_s912_s922x-ct2000"
 ```
 
-如果你经常构建某个设备，可以修改为你的常用 board。
+如果你经常构建某个设备，可以修改 St2/StX 中 `openwrt_board.default`，但默认值必须存在于 `config/openwrt_boards.txt`。
 
 ---
 
@@ -1155,7 +1165,7 @@ gh workflow run StX_Build-iStoreOS-src.yml \
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `openwrt_board` | choice | `s905d_s905x3_s912_s922x-ct2000` | 设备型号 |
+| `openwrt_board` | string | `s905d_s905x3_s912_s922x-ct2000` | 设备型号，必须存在于 `config/openwrt_boards.txt` |
 | `openwrt_kernel` | choice | `6.6.y` | `6.6.y`、`6.12.y`、`6.18.y` |
 | `auto_kernel` | boolean | `true` | 自动选择最新可用内核 |
 | `openwrt_rootfs` | choice | `RELEASE` | 当前仅 `RELEASE` |
@@ -1165,7 +1175,7 @@ gh workflow run StX_Build-iStoreOS-src.yml \
 
 | 参数 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
-| `openwrt_board` | choice | `s905d_s905x3_s912_s922x-ct2000` | 设备型号 |
+| `openwrt_board` | string | `s905d_s905x3_s912_s922x-ct2000` | 设备型号，必须存在于 `config/openwrt_boards.txt` |
 | `openwrt_kernel` | choice | `6.6.y` | `6.6.y`、`6.12.y`、`6.18.y` |
 | `auto_kernel` | boolean | `true` | 自动选择最新可用内核 |
 
@@ -1174,7 +1184,7 @@ gh workflow run StX_Build-iStoreOS-src.yml \
 ## 😊 支持设备
 
 > [!NOTE]
-> 下表用于快速查找设备类别。实际构建时请以 St2 / StX 的 `openwrt_board` 下拉选项为准，并确认你的设备具体型号、内存、网卡、启动方式和 DTB 是否匹配。
+> 下表用于快速查找设备类别。实际构建时请以 `config/openwrt_boards.txt` 中的 `openwrt_board` 值为准，并确认你的设备具体型号、内存、网卡、启动方式和 DTB 是否匹配。
 
 | 芯片 | 设备 |
 |---|---|

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lightweight repository checks for GitHub workflow maintenance."""
+"""Lightweight repository checks for workflow and build metadata maintenance."""
 
 from pathlib import Path
 import re
@@ -9,15 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 WORKFLOWS = sorted(WORKFLOW_DIR.glob("*.yml"))
 BUILD_CONFIG = ROOT / ".github" / "build-config.env"
+BOARD_LIST = ROOT / "config" / "openwrt_boards.txt"
+DEFAULT_BOARD = "s905d_s905x3_s912_s922x-ct2000"
 
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def read_build_config() -> dict[str, str]:
+def read_key_value_file(path: Path) -> dict[str, str]:
     config: dict[str, str] = {}
-    for line in read_text(BUILD_CONFIG).splitlines():
+    for line in read_text(path).splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -28,38 +30,40 @@ def read_build_config() -> dict[str, str]:
     return config
 
 
-def collect_board_options(path: Path) -> list[str]:
-    lines = read_text(path).splitlines()
-    in_board = False
-    in_options = False
-    options: list[str] = []
-
-    for line in lines:
-        if re.match(r"^\s{6}openwrt_board:\s*$", line):
-            in_board = True
-            continue
-
-        if in_board and re.match(r"^\s{8}options:\s*$", line):
-            in_options = True
-            continue
-
-        if in_options:
-            if re.match(r"^\s{6}[A-Za-z0-9_]+:\s*$", line):
-                break
-            match = re.match(r"^\s+-\s+(.+?)\s*$", line)
-            if match:
-                options.append(match.group(1))
-
-    return options
-
-
-def collect_package_entries(path: Path) -> list[str]:
+def collect_list_entries(path: Path) -> list[str]:
     entries: list[str] = []
     for line in read_text(path).splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
             entries.append(line)
     return entries
+
+
+def duplicates(entries: list[str]) -> list[str]:
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for entry in entries:
+        if entry in seen:
+            dupes.add(entry)
+        seen.add(entry)
+    return sorted(dupes)
+
+
+def workflow_has_inline_board_options(text: str) -> bool:
+    lines = text.splitlines()
+    in_board = False
+    for index, line in enumerate(lines):
+        if re.match(r"^\s{6}openwrt_board:\s*$", line):
+            in_board = True
+            continue
+        if in_board:
+            if re.match(r"^\s{6}[A-Za-z0-9_]+:\s*$", line):
+                return False
+            if re.match(r"^\s{8}options:\s*$", line):
+                return True
+            if index > 0 and not line.startswith(" "):
+                return False
+    return False
 
 
 def main() -> int:
@@ -69,7 +73,7 @@ def main() -> int:
         errors.append(".github/build-config.env is missing")
         config: dict[str, str] = {}
     else:
-        config = read_build_config()
+        config = read_key_value_file(BUILD_CONFIG)
 
     version = config.get("VERSION")
     if not version:
@@ -96,17 +100,25 @@ def main() -> int:
     if "steps.build_config.outputs.version" not in read_text(st1):
         errors.append("St1_Build-Rootfs-release.yml: build config version output is not used")
 
-    st2 = ROOT / ".github" / "workflows" / "St2_Build-iStoreOS-ib.yml"
-    stx = ROOT / ".github" / "workflows" / "StX_Build-iStoreOS-src.yml"
-    st2_boards = collect_board_options(st2)
-    stx_boards = collect_board_options(stx)
+    for name in ["St2_Build-iStoreOS-ib.yml", "StX_Build-iStoreOS-src.yml"]:
+        path = WORKFLOW_DIR / name
+        text = read_text(path)
+        if "./.github/workflows/_Pack-iStoreOS.yml" not in text:
+            errors.append(f"{name}: should call the shared _Pack-iStoreOS workflow")
+        if workflow_has_inline_board_options(text):
+            errors.append(f"{name}: openwrt_board choices must live in config/openwrt_boards.txt")
 
-    if not st2_boards:
-        errors.append("St2_Build-iStoreOS-ib.yml: openwrt_board options not found")
-    if not stx_boards:
-        errors.append("StX_Build-iStoreOS-src.yml: openwrt_board options not found")
-    if st2_boards and stx_boards and st2_boards != stx_boards:
-        errors.append("St2/StX openwrt_board option lists differ")
+    if not BOARD_LIST.exists():
+        errors.append("config/openwrt_boards.txt is missing")
+    else:
+        boards = collect_list_entries(BOARD_LIST)
+        if not boards:
+            errors.append("config/openwrt_boards.txt is empty")
+        if DEFAULT_BOARD not in boards:
+            errors.append(f"config/openwrt_boards.txt does not include default board {DEFAULT_BOARD}")
+        board_dupes = duplicates(boards)
+        if board_dupes:
+            errors.append(f"config/openwrt_boards.txt duplicate boards: {', '.join(board_dupes[:5])}")
 
     if version:
         repositories_conf = read_text(ROOT / "arm64" / "repositories.conf")
@@ -115,12 +127,11 @@ def main() -> int:
 
     package_dir = ROOT / "arm64" / "package-lists"
     for path in sorted(package_dir.glob("*.txt")):
-        entries = collect_package_entries(path)
-        seen: set[str] = set()
-        duplicates = sorted({entry for entry in entries if entry in seen or seen.add(entry)})
-        if duplicates:
+        entries = collect_list_entries(path)
+        package_dupes = duplicates(entries)
+        if package_dupes:
             display = path.relative_to(ROOT).as_posix()
-            errors.append(f"{display}: duplicate package entries: {', '.join(duplicates[:5])}")
+            errors.append(f"{display}: duplicate package entries: {', '.join(package_dupes[:5])}")
 
     if errors:
         print("Repository checks failed:")

@@ -1,0 +1,126 @@
+name: _Pack-iStoreOS
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      openwrt_board:
+        required: true
+        type: string
+      openwrt_kernel:
+        required: true
+        type: string
+      auto_kernel:
+        required: true
+        type: boolean
+      rootfs_url:
+        required: true
+        type: string
+      package_action:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+      release_body:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: ✅ 校验设备型号
+        run: |
+          if ! grep -Fxq "${{ inputs.openwrt_board }}" config/openwrt_boards.txt; then
+            echo "❌ 不支持的 openwrt_board: ${{ inputs.openwrt_board }}"
+            echo "请从 config/openwrt_boards.txt 中选择设备型号。"
+            exit 1
+          fi
+
+      - name: ⏬ 下载 rootfs.tar.gz
+        run: |
+          echo "📦 正在下载预构建 rootfs"
+          mkdir -p bin/targets/armsr/armv8
+          curl --fail --location --show-error --retry 3 --retry-delay 5 \
+            -o bin/targets/armsr/armv8/openwrt-armvirt-64-default-rootfs.tar.gz \
+            "${{ inputs.rootfs_url }}"
+          sha256sum bin/targets/armsr/armv8/openwrt-armvirt-64-default-rootfs.tar.gz
+
+      - name: 🔍 查找rootfs.tar.gz所在路径
+        id: find_rootfs
+        run: |
+          ROOTFS_FILE=$(find bin/targets/armsr/armv8/ -type f -name "*rootfs.tar.gz" | head -n1)
+          echo "✅ Found: $ROOTFS_FILE"
+          if [ ! -f "$ROOTFS_FILE" ]; then
+            echo "❌ 找不到 rootfs.tar.gz 文件"
+            exit 1
+          fi
+          echo "file=$ROOTFS_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: 🧱 打包iStoreOS固件（ophub）
+        if: inputs.package_action == 'ophub'
+        uses: ophub/amlogic-s9xxx-openwrt@c27a1dec98f1cd8f0212297e629243b35fa98534
+        with:
+          openwrt_path: ${{ steps.find_rootfs.outputs.file }}
+          openwrt_board: ${{ inputs.openwrt_board }}
+          openwrt_kernel: ${{ inputs.openwrt_kernel }}
+          auto_kernel: ${{ inputs.auto_kernel }}
+          kernel_repo: ophub/kernel
+          kernel_usage: stable
+          builder_name: kwonelee
+
+      - name: 🧱 打包iStoreOS固件（Kwonelee）
+        if: inputs.package_action == 'kwonelee'
+        uses: Kwonelee/amlogic-s9xxx-openwrt@e684d47c1b72ade630edf0c98028f740466efc39
+        with:
+          openwrt_path: ${{ steps.find_rootfs.outputs.file }}
+          openwrt_board: ${{ inputs.openwrt_board }}
+          openwrt_kernel: ${{ inputs.openwrt_kernel }}
+          auto_kernel: ${{ inputs.auto_kernel }}
+          kernel_repo: ophub/kernel
+          kernel_usage: stable
+          builder_name: kwonelee
+
+      - name: ✅ 校验打包 action 类型
+        run: |
+          case "${{ inputs.package_action }}" in
+            ophub|kwonelee) ;;
+            *)
+              echo "❌ 不支持的 package_action: ${{ inputs.package_action }}"
+              exit 1
+              ;;
+          esac
+
+      - name: 📜 调整.img.gz 文件名
+        run: |
+          for FILE in ${{ env.PACKAGED_OUTPUTPATH }}/*.img.gz; do
+            echo "Processing file: $FILE"
+            FILENAME=$(basename "$FILE")
+            NEW_FILENAME=$(echo "$FILENAME" | sed 's/openwrt/istoreos_${{ inputs.version }}/g')
+            if [ "$FILENAME" != "$NEW_FILENAME" ]; then
+              mv "$FILE" "${{ env.PACKAGED_OUTPUTPATH }}/$NEW_FILENAME"
+              echo "Renamed $FILENAME to $NEW_FILENAME"
+            else
+              echo "No need to rename $FILENAME"
+            fi
+          done
+
+      - name: 🚀 上传到 Release
+        uses: softprops/action-gh-release@v2.2.1
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          body: ${{ inputs.release_body }}
+          files: |
+            ${{ env.PACKAGED_OUTPUTPATH }}/*.img.gz
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

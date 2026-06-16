@@ -33,7 +33,6 @@ ddns-scripts
 ddns-scripts-cloudflare
 ddns-scripts-dnspod
 ddns-scripts-services
-ddns-scripts_aliyun
 ddnsto
 dkml
 -dnsmasq
