@@ -1,4 +1,8 @@
 # x86_64 默认集成的本地包
-# 当前保持为空，避免混用 files/packages 中的 aarch64_generic 本地 ipk。
-# 如需默认集成 x86_64 本地 ipk，请先把兼容的 ipk 放入 files/packages-x86_64/，
-# 再在此文件按包名逐行添加。
+# 空行和 # 开头的注释会被 x86_64/build24.sh 忽略。
+# daed / luci-app-daede 来自 kenzok8/openwrt-daede 预编译 x86_64 feed，
+# vmlinux-btf 用于补齐 dae/daed eBPF 运行所需的内核 BTF。
+
+daed
+luci-app-daede
+vmlinux-btf

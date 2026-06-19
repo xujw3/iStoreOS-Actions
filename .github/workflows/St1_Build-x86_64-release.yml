@@ -35,8 +35,12 @@ jobs:
         run: |
           VERSION=$(grep '^VERSION=' .github/build-config.env | cut -d= -f2-)
           X86_64_IMAGEBUILDER_URL=$(grep '^X86_64_IMAGEBUILDER_URL=' .github/build-config.env | cut -d= -f2-)
+          X86_64_VMLINUX_BTF_VERSION=$(grep '^X86_64_VMLINUX_BTF_VERSION=' .github/build-config.env | cut -d= -f2-)
+          X86_64_VMLINUX_BTF_SHA256=$(grep '^X86_64_VMLINUX_BTF_SHA256=' .github/build-config.env | cut -d= -f2-)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "x86_64_imagebuilder_url=$X86_64_IMAGEBUILDER_URL" >> "$GITHUB_OUTPUT"
+          echo "x86_64_vmlinux_btf_version=$X86_64_VMLINUX_BTF_VERSION" >> "$GITHUB_OUTPUT"
+          echo "x86_64_vmlinux_btf_sha256=$X86_64_VMLINUX_BTF_SHA256" >> "$GITHUB_OUTPUT"
 
       - name: ⚙️ 设置可执行权限
         run: |
@@ -110,6 +114,8 @@ jobs:
           tree -L 1
           echo "打印 repositories"
           cat repositories.conf
+          VMLINUX_BTF_VERSION="${{ steps.build_config.outputs.x86_64_vmlinux_btf_version }}" \
+          VMLINUX_BTF_SHA256="${{ steps.build_config.outputs.x86_64_vmlinux_btf_sha256 }}" \
           bash ./build24.sh
 
       - name: 📦 整理 x86_64 产物
