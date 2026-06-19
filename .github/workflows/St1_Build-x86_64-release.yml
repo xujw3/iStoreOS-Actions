@@ -1,0 +1,157 @@
+name: 💿 St1_Build-x86_64-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      network_settings:
+        description: "1、请选择初始网络配置"
+        required: true
+        default: 'dhcp'
+        type: choice
+        options:
+          - 'static'
+          - 'dhcp'
+      ipaddr:
+        description: '2、请输入管理IP（选择static时必填）'
+        required: true
+        default: '192.168.5.88'
+      gateway:
+        description: '3、请输入默认网关（选择static时必填）'
+        required: true
+        default: '192.168.5.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: ⚙️ 读取构建配置
+        id: build_config
+        run: |
+          VERSION=$(grep '^VERSION=' .github/build-config.env | cut -d= -f2-)
+          X86_64_IMAGEBUILDER_URL=$(grep '^X86_64_IMAGEBUILDER_URL=' .github/build-config.env | cut -d= -f2-)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "x86_64_imagebuilder_url=$X86_64_IMAGEBUILDER_URL" >> "$GITHUB_OUTPUT"
+
+      - name: ⚙️ 设置可执行权限
+        run: |
+          chmod +x x86_64/build24.sh
+          chmod +x shell/*.sh
+
+      - name: ⚙️ 设置IP、网关和版本号
+        run: |
+          CONFIG_PATH="./files/etc/uci-defaults/99-custom.sh"
+          sed -i "s/版本号/${{ steps.build_config.outputs.version }}/g" "$CONFIG_PATH"
+          sed -i "s/版本号/${{ steps.build_config.outputs.version }}/g" "./files/etc/banner"
+          sed -i "s/__NETWORK_SETTINGS__/${{ inputs.network_settings }}/g" "$CONFIG_PATH"
+          sed -i "s/__STATIC_IPADDR__/${{ inputs.ipaddr }}/g" "$CONFIG_PATH"
+          sed -i "s/__STATIC_GATEWAY__/${{ inputs.gateway }}/g" "$CONFIG_PATH"
+          echo "当前网络配置：${{ inputs.network_settings }}"
+          echo "当前网络配置路径：$CONFIG_PATH"
+          echo "输出配置"
+          cat "$CONFIG_PATH"
+
+      - name: ⏬ 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev zstd curl unzip tree
+
+      - name: ⏬ 下载 x86_64 ImageBuilder
+        run: |
+          curl --fail --location --show-error --retry 3 --retry-delay 5 \
+            -o imagebuilder.tar.zst \
+            "${{ steps.build_config.outputs.x86_64_imagebuilder_url }}"
+          sha256sum imagebuilder.tar.zst
+          tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
+          mv istoreos-imagebuilder-* imagebuilder
+
+      - name: ⏬ 复制并设置必备文件
+        run: |
+          cp x86_64/build24.sh imagebuilder/
+          cp -r x86_64/package-lists imagebuilder/
+          cp shell/{prepare-packages.sh,custom-packages.sh} imagebuilder/
+
+          if [ -d files/packages-x86_64 ]; then
+            find files/packages-x86_64/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
+          else
+            echo "未发现 files/packages-x86_64，跳过 x86_64 本地 ipk。"
+          fi
+
+          if [ -d files/packages-common ]; then
+            find files/packages-common/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
+          else
+            echo "未发现 files/packages-common，跳过通用本地 ipk。"
+          fi
+
+          mkdir -p imagebuilder/files/etc/{uci-defaults,banner1}
+          cp files/etc/uci-defaults/99-custom.sh imagebuilder/files/etc/uci-defaults/
+          cp files/etc/banner imagebuilder/files/etc/banner1/
+          cp files/etc/rc.local imagebuilder/files/etc/
+
+          cd imagebuilder
+          echo "保留 x86_64 ImageBuilder 默认镜像配置，并确保 gzip 镜像开启"
+          if grep -q '^# CONFIG_TARGET_IMAGES_GZIP is not set' .config; then
+            sed -i 's/# CONFIG_TARGET_IMAGES_GZIP is not set/CONFIG_TARGET_IMAGES_GZIP=y/' .config
+          elif ! grep -q '^CONFIG_TARGET_IMAGES_GZIP=y' .config; then
+            echo 'CONFIG_TARGET_IMAGES_GZIP=y' >> .config
+          fi
+          echo "打印 action 目录结构"
+          tree -L 1
+
+      - name: 🧱 构建 iStoreOS x86_64 固件
+        working-directory: ./imagebuilder
+        run: |
+          echo "打印 imagebuilder 目录结构"
+          tree -L 1
+          echo "打印 repositories"
+          cat repositories.conf
+          bash ./build24.sh
+
+      - name: 📦 整理 x86_64 产物
+        run: |
+          OUTPUT_DIR="imagebuilder/bin/targets/x86/64"
+          RELEASE_DIR="release-files"
+          mkdir -p "$RELEASE_DIR"
+          echo "打印 x86_64 产物目录"
+          ls -lah "$OUTPUT_DIR"
+
+          for pattern in "$OUTPUT_DIR"/*.img.gz "$OUTPUT_DIR"/*rootfs.tar.gz "$OUTPUT_DIR"/*.manifest; do
+            for file in $pattern; do
+              [ -e "$file" ] || continue
+              cp "$file" "$RELEASE_DIR"/
+            done
+          done
+
+          if ! ls "$RELEASE_DIR"/* >/dev/null 2>&1; then
+            echo "❌ 未找到可上传的 x86_64 产物"
+            exit 1
+          fi
+
+          echo "准备上传的文件："
+          ls -lah "$RELEASE_DIR"
+
+      - name: 🚀 上传到 Release
+        uses: softprops/action-gh-release@v2.2.1
+        with:
+          tag_name: iStoreOS-${{ steps.build_config.outputs.version }}-x86_64-RELEASE-${{ inputs.network_settings }}
+          body: |
+            📌 版本： iStoreOS-${{ steps.build_config.outputs.version }}-x86_64-RELEASE（x86_64 ImageBuilder 构建）
+
+            📂 来源： https://fw.koolcenter.com/iStoreOS/ib/x86_64/
+
+            🧩 集成： 使用 x86_64 ImageBuilder profile 默认包集合，并叠加本仓库 rootfs overlay
+
+            👤 用户名： root
+
+            🔒 密码： 无
+
+            🌐 IP： ${{ inputs.network_settings == 'static' && inputs.ipaddr || '单网口-动态获取（从上级路由找寻）；多网口-IP：192.168.100.1' }}
+          files: |
+            release-files/*
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

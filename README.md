@@ -33,7 +33,8 @@
   - [2. 检查 Actions 权限](#2-检查-actions-权限)
   - [3. 执行 St1：构建通用 rootfs](#3-执行-st1构建通用-rootfs)
   - [4. 执行 St2：打包设备固件](#4-执行-st2打包设备固件)
-  - [5. 下载 Release 产物](#5-下载-release-产物)
+  - [5. 构建 x86_64 固件（可选）](#5-构建-x86_64-固件可选)
+  - [6. 下载 Release 产物](#6-下载-release-产物)
 - [🧰 如何使用固件](#-如何使用固件)
 - [🌐 初始网络配置说明](#-初始网络配置说明)
 - [🧩 第三方插件与默认集成](#-第三方插件与默认集成)
@@ -59,7 +60,7 @@
 
 ## 🤔 项目介绍
 
-本仓库用于自动化构建面向 `armsr/armv8` 平台的 **iStoreOS / OpenWrt 固件**，重点支持 Amlogic、Rockchip、Allwinner 等电视盒子、开发板、小主机和软路由设备。
+本仓库用于自动化构建面向 `armsr/armv8` 和 `x86/64` 平台的 **iStoreOS / OpenWrt 固件**，重点支持 Amlogic、Rockchip、Allwinner 等电视盒子、开发板、小主机、虚拟机和 x86_64 软路由设备。
 
 它不是传统应用源码仓库，而是一个 **固件装配仓库**：
 
@@ -75,13 +76,14 @@
 | 项目 | 当前值 |
 |---|---|
 | iStoreOS / OpenWrt 版本 | `24.10.6` |
-| rootfs 目标平台 | `armsr/armv8` |
-| rootfs profile | `generic` |
+| rootfs / 固件目标平台 | `armsr/armv8`、`x86/64` |
+| profile | `generic` |
 | 默认用户名 | `root` |
 | 默认密码 | 空密码，首次登录后请立即设置 |
 | 默认构建方式 | GitHub Actions 云构建 |
-| Rootfs 构建 workflow | `.github/workflows/St1_Build-Rootfs-release.yml` |
-| 设备固件打包 workflow | `.github/workflows/St2_Build-iStoreOS-ib.yml` |
+| ARM rootfs 构建 workflow | `.github/workflows/St1_Build-Rootfs-release.yml` |
+| ARM 设备固件打包 workflow | `.github/workflows/St2_Build-iStoreOS-ib.yml` |
+| x86_64 固件构建 workflow | `.github/workflows/St1_Build-x86_64-release.yml` |
 | 备用 SNAPSHOT workflow | `.github/workflows/StX_Build-iStoreOS-src.yml` |
 
 ---
@@ -90,17 +92,22 @@
 
 ```mermaid
 flowchart TD
-  A[本仓库源码] --> B[St1: 下载 iStoreOS ImageBuilder]
-  B --> C[复制 build24.sh / Makefile / package-lists / shell 脚本]
+  A[本仓库源码] --> B[St1 ARM: 下载 armsr/armv8 ImageBuilder]
+  B --> C[复制 arm64 build24.sh / Makefile / package-lists / shell 脚本]
   C --> D[复制 files rootfs overlay]
-  C --> E[复制 files/packages 本地 ipk]
+  C --> E[复制 files/packages 本地 aarch64 ipk]
   D --> F[ImageBuilder 构建 generic-rootfs.tar.gz]
   E --> F
   F --> G[上传到 Release: iStoreOS-版本-RELEASE-网络模式]
-  G --> H[St2: 下载 rootfs.tar.gz]
+  G --> H[St2 ARM: 下载 rootfs.tar.gz]
   H --> I[ophub/amlogic-s9xxx-openwrt 打包]
   I --> J[输出设备专用 .img.gz]
   J --> K[上传到同一 Release]
+
+  A --> X[St1 x86_64: 下载 x86_64 ImageBuilder]
+  X --> Y[复制 x86_64 build24.sh / package-lists / rootfs overlay]
+  Y --> Z[ImageBuilder 构建 x86/64 .img.gz / manifest]
+  Z --> R[上传到 x86_64 Release]
 
   L[StX 备用路径] --> M[下载外部预构建 rootfs]
   M --> N[打包 SNAPSHOT 固件]
@@ -110,12 +117,13 @@ flowchart TD
 
 | Workflow | 作用 | 适用场景 | 是否使用本仓库自定义 rootfs |
 |---|---|---|---|
-| `St1_Build-Rootfs-release.yml` | 构建通用 rootfs | 需要集成本仓库包、配置、overlay 时必须先跑 | ✅ 是 |
-| `St2_Build-iStoreOS-ib.yml` | 基于 St1 的 rootfs 打包设备固件 | 正常构建推荐路径 | ✅ 是 |
-| `StX_Build-iStoreOS-src.yml` | 下载外部 rootfs 后打包 | St1 不可用或只想快速打包测试时 | ❌ 否 |
+| `St1_Build-Rootfs-release.yml` | 构建 ARM 通用 rootfs | 需要集成本仓库 ARM 包、配置、overlay 时必须先跑 | ✅ 是 |
+| `St2_Build-iStoreOS-ib.yml` | 基于 ARM St1 的 rootfs 打包设备固件 | Amlogic/Rockchip/Allwinner 等板卡正常构建推荐路径 | ✅ 是 |
+| `St1_Build-x86_64-release.yml` | 构建 x86_64 通用固件镜像 | 虚拟机、软路由、小主机等 x86_64 平台 | ✅ 是 |
+| `StX_Build-iStoreOS-src.yml` | 下载外部 rootfs 后打包 | St1 不可用或只想快速打包测试 ARM 设备时 | ❌ 否 |
 
 > [!IMPORTANT]
-> 如果你修改了 `arm64/build24.sh`、`arm64/package-lists/**`、`shell/custom-packages.sh`、`files/packages/**`、`files/etc/**` 等内容，必须走 **St1 → St2**。备用的 **StX** 使用外部预构建 rootfs，不会包含你在本仓库中的 rootfs 自定义内容。
+> 如果你修改了 `arm64/build24.sh`、`arm64/package-lists/**`、`shell/custom-packages.sh`、`files/packages/**`、`files/etc/**` 等 ARM rootfs 内容，必须走 **St1 → St2**。如果修改 `x86_64/build24.sh`、`x86_64/package-lists/**`、`files/packages-x86_64/**`、`files/etc/**` 等 x86_64 内容，请走 **St1_Build-x86_64-release**。备用的 **StX** 使用外部预构建 rootfs，不会包含你在本仓库中的 rootfs 自定义内容。
 
 ---
 
@@ -128,14 +136,18 @@ flowchart TD
 │   └── workflows/
 │       ├── Check.yml                    # 轻量 CI：语法、校验清单、一致性检查
 │       ├── _Pack-iStoreOS.yml           # St2/StX 共用打包 workflow
-│       ├── St1_Build-Rootfs-release.yml # 构建通用 rootfs 并上传 Release
+│       ├── St1_Build-Rootfs-release.yml # 构建 ARM 通用 rootfs 并上传 Release
+│       ├── St1_Build-x86_64-release.yml # 构建 x86_64 通用 .img.gz 并上传 Release
 │       ├── St2_Build-iStoreOS-ib.yml    # 使用 St1 rootfs 打包指定设备 .img.gz
 │       └── StX_Build-iStoreOS-src.yml   # 备用：下载外部 rootfs 后打包 SNAPSHOT
 ├── arm64/
-│   ├── build24.sh                     # rootfs 主构建入口：加载包清单、整理第三方包、make image
-│   ├── package-lists/                  # 官方包、本地默认包、可选包清单
-│   ├── Makefile                       # ImageBuilder 内使用的 Makefile 变体
-│   └── repositories.conf              # OpenWrt 远程软件源和本地 packages 源
+│   ├── build24.sh                     # ARM rootfs 主构建入口：加载包清单、整理第三方包、make image
+│   ├── package-lists/                  # ARM 官方包、本地默认包、可选包清单
+│   ├── Makefile                       # ARM ImageBuilder 内使用的 Makefile 变体
+│   └── repositories.conf              # ARM OpenWrt 远程软件源和本地 packages 源
+├── x86_64/
+│   ├── build24.sh                     # x86_64 构建入口：复用 ImageBuilder 默认 profile，仅追加/排除包
+│   └── package-lists/                  # x86_64 追加/排除包清单
 ├── config/
 │   └── openwrt_boards.txt              # St2/StX 支持设备型号单一来源
 ├── scripts/
@@ -148,7 +160,9 @@ flowchart TD
 │   │   ├── banner                     # 登录 banner，构建时替换“版本号”占位符
 │   │   ├── rc.local                   # 系统启动完成后执行
 │   │   └── uci-defaults/99-custom.sh  # 首次启动一次性初始化配置
-│   ├── packages/                      # 本地 .ipk 包，构建时复制进 ImageBuilder packages/
+│   ├── packages/                      # ARM 本地 .ipk 包，构建时复制进 ARM ImageBuilder packages/
+│   ├── packages-x86_64/               # x86_64 本地 .ipk 包占位目录
+│   ├── packages-common/               # 架构无关本地 .ipk 包占位目录
 │   └── screenshot/                    # README 图片资源
 ├── LICENSE
 └── README.md
@@ -158,15 +172,18 @@ flowchart TD
 
 | 文件 | 你通常会在什么时候修改 |
 |---|---|
-| `arm64/build24.sh` | 修改 rootfs 构建流程、第三方仓库拉取方式、最终 make image 参数 |
-| `arm64/package-lists/*.txt` | 增删默认内置软件包、启用 `files/packages` 下的本地插件 |
+| `arm64/build24.sh` | 修改 ARM rootfs 构建流程、第三方仓库拉取方式、最终 make image 参数 |
+| `arm64/package-lists/*.txt` | 增删 ARM 默认内置软件包、启用 `files/packages` 下的本地插件 |
+| `x86_64/build24.sh` | 修改 x86_64 构建流程；默认复用 ImageBuilder profile 官方包集合 |
+| `x86_64/package-lists/*.txt` | 为 x86_64 追加或排除包；不要直接复用 ARM 包清单 |
 | `shell/custom-packages.sh` | 启用仓库外第三方插件，或用 `-包名` 排除默认组件 |
 | `files/etc/uci-defaults/99-custom.sh` | 设置首次启动网络、主机名、语言、时区、防火墙、SSH/ttyd 等 |
 | `files/etc/rc.local` | 系统每次启动完成后的简单命令 |
 | `files/etc/banner` | 修改 SSH/TTY 登录欢迎信息 |
-| `.github/build-config.env` | 修改 iStoreOS/OpenWrt 当前构建版本 |
+| `.github/build-config.env` | 修改 iStoreOS/OpenWrt 当前构建版本，以及 x86_64 ImageBuilder 下载 URL |
 | `.github/workflows/_Pack-iStoreOS.yml` | 修改 St2/StX 共用打包流程、打包 action 固定版本、Release 上传规则 |
-| `.github/workflows/St1_Build-Rootfs-release.yml` | 修改 rootfs 构建版本、初始网络输入、Release 规则 |
+| `.github/workflows/St1_Build-Rootfs-release.yml` | 修改 ARM rootfs 构建版本、初始网络输入、Release 规则 |
+| `.github/workflows/St1_Build-x86_64-release.yml` | 修改 x86_64 ImageBuilder 下载、产物整理、Release 规则 |
 | `.github/workflows/St2_Build-iStoreOS-ib.yml` | 修改 St1 rootfs 打包入口参数 |
 | `.github/workflows/StX_Build-iStoreOS-src.yml` | 修改备用 SNAPSHOT 打包入口参数或外部 rootfs 来源 |
 | `config/openwrt_boards.txt` | 添加、删除或校验 St2/StX 支持的 `openwrt_board` 值 |
@@ -254,7 +271,27 @@ istoreos_24.10.6_*.img.gz
 > [!IMPORTANT]
 > St2 的 `network_settings` 必须与 St1 产出的 Release 匹配。例如 St1 跑的是 `dhcp`，St2 也要选 `dhcp`，否则会下载不到 rootfs。
 
-### 5. 下载 Release 产物
+### 5. 构建 x86_64 固件（可选）
+
+如果目标是 x86_64 软路由、虚拟机或小主机，不需要执行 St2，也不需要 ophub 打包。直接执行：
+
+1. 进入 **Actions**。
+2. 选择 **💿 St1_Build-x86_64-release**。
+3. 点击 **Run workflow**。
+4. 选择 `network_settings`，按需填写 `ipaddr` 和 `gateway`。
+
+构建成功后会上传 x86_64 ImageBuilder 产出的 `.img.gz` 和 `.manifest`：
+
+```text
+iStoreOS-24.10.6-x86_64-RELEASE-dhcp
+# 或
+iStoreOS-24.10.6-x86_64-RELEASE-static
+```
+
+> [!NOTE]
+> x86_64 workflow 默认复用官方 x86_64 ImageBuilder profile 的包集合，仅叠加本仓库 `files/` overlay 和 `x86_64/package-lists/` 中的追加/排除项。`files/packages/` 中现有本地 ipk 多为 `aarch64_generic`，不会复制到 x86_64 构建中。
+
+### 6. 下载 Release 产物
 
 进入仓库 **Releases** 页面，找到对应 tag：
 
@@ -262,14 +299,18 @@ istoreos_24.10.6_*.img.gz
 iStoreOS-24.10.6-RELEASE-dhcp
 # 或
 iStoreOS-24.10.6-RELEASE-static
+# x86_64：
+iStoreOS-24.10.6-x86_64-RELEASE-dhcp
+iStoreOS-24.10.6-x86_64-RELEASE-static
 ```
 
-通常你会看到两类文件：
+通常你会看到以下几类文件：
 
 | 文件 | 用途 |
 |---|---|
-| `*generic-rootfs.tar.gz` | 通用 rootfs，供后续打包或二次处理 |
-| `*.img.gz` | 指定设备可刷写固件 |
+| `*generic-rootfs.tar.gz` | ARM 通用 rootfs，供 St2 打包或二次处理 |
+| `*.img.gz` | ARM 设备专用镜像或 x86_64 通用可刷写镜像 |
+| `*.manifest` | x86_64 构建的软件包清单 |
 
 ---
 
@@ -277,8 +318,8 @@ iStoreOS-24.10.6-RELEASE-static
 
 ### 刷写前准备
 
-1. 确认设备型号和 `openwrt_board` 完全匹配。
-2. 确认启动方式：TF 卡、U 盘、eMMC、NVMe、SATA 等，不同设备差异较大。
+1. ARM 设备需确认设备型号和 `openwrt_board` 完全匹配；x86_64 设备无需填写 `openwrt_board`。
+2. 确认启动方式：TF 卡、U 盘、eMMC、NVMe、SATA、虚拟磁盘等，不同设备差异较大。
 3. 备份原系统、引导分区、重要配置和数据。
 4. 下载对应设备的 `.img.gz`。
 5. 解压或直接使用支持 `.gz` 的写盘工具写入。
@@ -373,6 +414,9 @@ DHCP 模式会在首次启动时检测物理网口：
 
 ### 本地 `files/packages` 中已有插件
 
+> [!IMPORTANT]
+> 当前 `files/packages/` 中的二进制 ipk 主要是 `aarch64_generic` 或 ARM 构建验证过的包，只供 ARM St1 使用。x86_64 workflow 不会复制该目录；x86_64 本地包请放入 `files/packages-x86_64/`，纯脚本/架构无关包可放入 `files/packages-common/`，并在 `x86_64/package-lists/local-default.txt` 中添加包名。
+
 | 插件 | 包名示例 | 当前状态 | 说明 |
 |---|---|---|---|
 | 晶晨宝盒 | `luci-app-amlogic`、`luci-i18n-amlogic-zh-cn` | ✅ 默认集成 | 用于 Amlogic 相关安装、内核替换等 |
@@ -383,14 +427,16 @@ DHCP 模式会在首次启动时检测物理网口：
 | FileBrowser Go | `filebrowser`、`luci-app-filebrowser-go` | 📦 本地可选 | 已放入本地 ipk，默认未启用 |
 | 其他依赖 | `perlbase-*` 等 | 按需使用 | 供部分插件依赖 |
 
-对应开关位于 `arm64/package-lists/`：
+ARM 对应开关位于 `arm64/package-lists/`：
 
 ```text
 arm64/package-lists/local-default.txt   # 当前默认集成的本地包
 arm64/package-lists/local-optional.txt  # 已放入仓库但默认不安装的示例
 ```
 
-当前默认集成：
+x86_64 对应开关位于 `x86_64/package-lists/`，当前默认不集成本地 ipk。
+
+ARM 当前默认集成：
 
 ```text
 luci-app-amlogic
@@ -404,7 +450,7 @@ luci-i18n-ramfree-zh-cn
 | 标记 | 含义 |
 |---|---|
 | ✅ 默认集成 | 当前构建默认安装进固件 |
-| 📦 本地可选 | `.ipk` 已在仓库中，但需要把包名加入 `arm64/package-lists/local-default.txt` 或 `CUSTOM_PACKAGES` 才会安装 |
+| 📦 本地可选 | `.ipk` 已在仓库中，但 ARM 需要把包名加入 `arm64/package-lists/local-default.txt` 或 `CUSTOM_PACKAGES`；x86_64 需要使用兼容 ipk 并加入 `x86_64/package-lists/local-default.txt` |
 | 🌐 仓库外可选 | 由 `shell/custom-packages.sh` 从外部插件仓库拉取 |
 | ⭕ 不支持 | 暂未适配或不建议集成 |
 
@@ -489,8 +535,8 @@ files/packages/luci-app-example/
 
 #### 操作步骤
 
-1. 把 `.ipk` 放到 `files/packages/<插件名>/`。
-2. 打开 `arm64/package-lists/local-default.txt`。
+1. ARM 包把 `.ipk` 放到 `files/packages/<插件名>/`；x86_64 包放到 `files/packages-x86_64/<插件名>/`，纯架构无关包可放到 `files/packages-common/<插件名>/`。
+2. ARM 打开 `arm64/package-lists/local-default.txt`；x86_64 打开 `x86_64/package-lists/local-default.txt`。
 3. 每行追加一个要安装的包名：
 
 ```text
@@ -506,14 +552,21 @@ shopt -s globstar nullglob
 sha256sum files/packages/**/*.ipk > files/packages/SHA256SUMS
 ```
 
-5. 执行 St1 → St2。
+5. ARM 执行 St1 → St2；x86_64 执行 `St1_Build-x86_64-release.yml`。
 
 #### 为什么放入 ipk 后还要加 PACKAGES？
 
-St1 workflow 会执行：
+ARM St1 workflow 会执行：
 
 ```bash
 find files/packages/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
+```
+
+x86_64 workflow 只会复制：
+
+```bash
+find files/packages-x86_64/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
+find files/packages-common/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
 ```
 
 这只表示把 `.ipk` 加入 ImageBuilder 的本地软件源。真正安装哪些包仍由 `package-lists/*.txt` 与 `CUSTOM_PACKAGES` 组合后的 `PACKAGES` 决定。
@@ -522,7 +575,7 @@ find files/packages/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
 
 请尽量确保：
 
-- 架构匹配：`aarch64_generic` 或 `all`。
+- 架构匹配：ARM 使用 `aarch64_generic` 或 `all`；x86_64 使用 `x86_64` 或 `all`。
 - OpenWrt 版本匹配：当前为 `24.10.6`。
 - 依赖完整：缺依赖会导致 ImageBuilder 安装失败。
 - 校验清单同步：新增、删除或替换 `.ipk` 后同步更新 `files/packages/SHA256SUMS`。
@@ -988,11 +1041,12 @@ default: "s905d_s905x3_s912_s922x-ct2000"
 
 | 文件 | 需要检查的内容 |
 |---|---|
-| `.github/build-config.env` | `VERSION`，影响 Release tag、下载 URL、文件名 |
-| `.github/workflows/St1_Build-Rootfs-release.yml` | `build_version.options`、ImageBuilder 下载地址 |
+| `.github/build-config.env` | `VERSION`，影响 Release tag、下载 URL、文件名；`X86_64_IMAGEBUILDER_URL` 指向 x86_64 ImageBuilder |
+| `.github/workflows/St1_Build-Rootfs-release.yml` | `build_version.options`、ARM ImageBuilder 下载地址 |
+| `.github/workflows/St1_Build-x86_64-release.yml` | x86_64 ImageBuilder 下载、产物路径和 Release 规则 |
 | `.github/workflows/St2_Build-iStoreOS-ib.yml` | 确保 St2 下载 tag 与 St1 上传 tag 匹配 |
 | `.github/workflows/StX_Build-iStoreOS-src.yml` | SNAPSHOT Release 名称和外部 rootfs 来源 |
-| `arm64/repositories.conf` | OpenWrt release 路径、`kmods` 路径、架构源 |
+| `arm64/repositories.conf` | ARM OpenWrt release 路径、`kmods` 路径、架构源 |
 | `arm64/package-lists/*.txt` | 包名是否仍存在、是否有改名或依赖变化 |
 | `files/packages/**` | 本地 `.ipk` 是否兼容新版本 |
 
@@ -1014,11 +1068,11 @@ src/gz openwrt_kmods https://downloads.openwrt.org/releases/24.10.6/targets/arms
 
 ### 推荐升级流程
 
-1. 新增或修改 St1 `build_version`。
-2. 修改 `.github/build-config.env` 中的 `VERSION`。
+1. 新增或修改 ARM St1 `build_version`。
+2. 修改 `.github/build-config.env` 中的 `VERSION`，并按需更新 `X86_64_IMAGEBUILDER_URL`。
 3. 更新 `arm64/repositories.conf`。
-4. 暂时减少自定义插件，先构建最小可用 rootfs。
-5. 逐个恢复本地 ipk 和第三方插件。
+4. 暂时减少自定义插件，先构建最小可用 rootfs / x86_64 镜像。
+5. 逐个恢复本地 ipk 和第三方插件；x86_64 只使用兼容的 `x86_64` 或 `all` 包。
 6. 使用目标设备测试启动、网络、WebUI、SSH、插件页面。
 7. 更新 README 中的版本信息和已验证设备。
 
@@ -1031,7 +1085,7 @@ src/gz openwrt_kmods https://downloads.openwrt.org/releases/24.10.6/targets/arms
 修改 shell 脚本后建议至少运行：
 
 ```bash
-bash -n arm64/build24.sh shell/*.sh
+bash -n arm64/build24.sh x86_64/build24.sh shell/*.sh
 sh -n files/etc/uci-defaults/99-custom.sh files/etc/rc.local
 python scripts/check_workflows.py
 sha256sum -c files/packages/SHA256SUMS
@@ -1093,6 +1147,49 @@ bash ./build24.sh
 imagebuilder/bin/targets/armsr/armv8/
 ```
 
+### 本地复现 x86_64 构建
+
+x86_64 使用独立 ImageBuilder，不复制 `arm64/Makefile`、`arm64/repositories.conf`，也不会复制 `files/packages/` 下的 aarch64 本地 ipk：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential libncurses5-dev zstd curl unzip tree
+
+curl --fail --location --show-error --retry 3 --retry-delay 5 \
+  -o imagebuilder.tar.zst \
+  https://fw.koolcenter.com/iStoreOS/ib/x86_64/istoreos-imagebuilder-x86-64.Linux-x86_64.tar.zst
+sha256sum imagebuilder.tar.zst
+
+tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
+mv istoreos-imagebuilder-* imagebuilder
+
+cp x86_64/build24.sh imagebuilder/
+cp -r x86_64/package-lists imagebuilder/
+cp shell/{prepare-packages.sh,custom-packages.sh} imagebuilder/
+
+# 可选：仅复制 x86_64 或架构无关的本地 ipk
+[ -d files/packages-x86_64 ] && find files/packages-x86_64/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
+[ -d files/packages-common ] && find files/packages-common/ -name "*.ipk" -exec cp {} imagebuilder/packages/ \;
+
+mkdir -p imagebuilder/files/etc/{uci-defaults,banner1}
+cp files/etc/uci-defaults/99-custom.sh imagebuilder/files/etc/uci-defaults/
+cp files/etc/banner imagebuilder/files/etc/banner1/
+cp files/etc/rc.local imagebuilder/files/etc/
+sed -i 's/版本号/24.10.6/g' imagebuilder/files/etc/uci-defaults/99-custom.sh imagebuilder/files/etc/banner1/banner
+sed -i 's/__NETWORK_SETTINGS__/dhcp/g' imagebuilder/files/etc/uci-defaults/99-custom.sh
+sed -i 's/__STATIC_IPADDR__/192.168.5.88/g' imagebuilder/files/etc/uci-defaults/99-custom.sh
+sed -i 's/__STATIC_GATEWAY__/192.168.5.1/g' imagebuilder/files/etc/uci-defaults/99-custom.sh
+
+cd imagebuilder
+bash ./build24.sh
+```
+
+构建成功后产物通常位于：
+
+```text
+imagebuilder/bin/targets/x86/64/
+```
+
 ### ImageBuilder 常用调试命令
 
 在 `imagebuilder/` 目录内：
@@ -1139,6 +1236,15 @@ gh workflow run St2_Build-iStoreOS-ib.yml \
   -f network_settings=dhcp
 ```
 
+#### x86_64：构建通用固件
+
+```bash
+gh workflow run St1_Build-x86_64-release.yml \
+  -f network_settings=dhcp \
+  -f ipaddr=192.168.5.88 \
+  -f gateway=192.168.5.1
+```
+
 #### StX：备用 SNAPSHOT 打包
 
 ```bash
@@ -1157,6 +1263,14 @@ gh workflow run StX_Build-iStoreOS-src.yml \
 | 参数 | 类型 | 默认值 | 可选值/说明 |
 |---|---|---|---|
 | `build_version` | choice | `20260417` | `20260417`、`20260410`、`20260320`、`20251231` |
+| `network_settings` | choice | `dhcp` | `dhcp` 或 `static` |
+| `ipaddr` | string | `192.168.5.88` | static 模式管理 IP |
+| `gateway` | string | `192.168.5.1` | static 模式默认网关 |
+
+### St1_Build-x86_64-release
+
+| 参数 | 类型 | 默认值 | 可选值/说明 |
+|---|---|---|---|
 | `network_settings` | choice | `dhcp` | `dhcp` 或 `static` |
 | `ipaddr` | string | `192.168.5.88` | static 模式管理 IP |
 | `gateway` | string | `192.168.5.1` | static 模式默认网关 |
@@ -1184,7 +1298,7 @@ gh workflow run StX_Build-iStoreOS-src.yml \
 ## 😊 支持设备
 
 > [!NOTE]
-> 下表用于快速查找设备类别。实际构建时请以 `config/openwrt_boards.txt` 中的 `openwrt_board` 值为准，并确认你的设备具体型号、内存、网卡、启动方式和 DTB 是否匹配。
+> 下表用于快速查找 ARM 设备类别。实际构建 ARM 固件时请以 `config/openwrt_boards.txt` 中的 `openwrt_board` 值为准，并确认你的设备具体型号、内存、网卡、启动方式和 DTB 是否匹配。x86_64 软路由/虚拟机不使用 `openwrt_board`，直接运行 `St1_Build-x86_64-release.yml`。
 
 | 芯片 | 设备 |
 |---|---|
@@ -1227,9 +1341,9 @@ gh workflow run StX_Build-iStoreOS-src.yml \
 
 ### 1. 为什么要先跑 St1 再跑 St2？
 
-St1 负责构建通用 rootfs，并上传到 Release。St2 会从 Release 下载这个 rootfs，再打包成指定设备的 `.img.gz`。
+这只针对 ARM 设备。ARM St1 负责构建通用 rootfs，并上传到 Release。St2 会从 Release 下载这个 rootfs，再打包成指定设备的 `.img.gz`。
 
-如果没有先跑 St1，St2 通常会在下载 rootfs 时失败。
+如果没有先跑 ARM St1，St2 通常会在下载 rootfs 时失败。x86_64 不需要 St2，直接运行 `St1_Build-x86_64-release.yml` 即可。
 
 ### 2. St2 下载 rootfs 失败怎么办？
 
@@ -1260,7 +1374,7 @@ luci-app-your-package
 luci-i18n-your-package-zh-cn
 ```
 
-新增或替换 `.ipk` 后还要同步更新 `files/packages/SHA256SUMS`。
+新增或替换 ARM `.ipk` 后还要同步更新 `files/packages/SHA256SUMS`。x86_64 本地 `.ipk` 请放在 `files/packages-x86_64/` 或 `files/packages-common/`，并确认架构兼容。
 
 ### 5. 为什么某个 `kmod-*` 安装失败？
 

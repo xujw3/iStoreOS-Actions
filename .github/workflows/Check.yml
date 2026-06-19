@@ -19,7 +19,7 @@ jobs:
 
       - name: Shell syntax check
         run: |
-          bash -n arm64/build24.sh shell/*.sh
+          bash -n arm64/build24.sh x86_64/build24.sh shell/*.sh
           sh -n files/etc/uci-defaults/99-custom.sh files/etc/rc.local
 
       - name: Local IPK checksum check
