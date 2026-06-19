@@ -6,7 +6,7 @@ on:
       network_settings:
         description: "1、请选择初始网络配置"
         required: true
-        default: 'dhcp'
+        default: 'static'
         type: choice
         options:
           - 'static'
@@ -14,11 +14,11 @@ on:
       ipaddr:
         description: '2、请输入管理IP（选择static时必填）'
         required: true
-        default: '192.168.5.88'
+        default: '10.1.1.250'
       gateway:
         description: '3、请输入默认网关（选择static时必填）'
         required: true
-        default: '192.168.5.1'
+        default: '10.1.1.1'
 
 permissions:
   contents: write
