@@ -11,6 +11,7 @@ WORKFLOWS = sorted(WORKFLOW_DIR.glob("*.yml"))
 BUILD_CONFIG = ROOT / ".github" / "build-config.env"
 BOARD_LIST = ROOT / "config" / "openwrt_boards.txt"
 DEFAULT_BOARD = "s905d_s905x3_s912_s922x-ct2000"
+X86_IMAGEBUILDER_URL_KEY = "X86_64_IMAGEBUILDER_URL"
 
 
 def read_text(path: Path) -> str:
@@ -81,6 +82,12 @@ def main() -> int:
     elif not re.fullmatch(r"\d+\.\d+\.\d+", version):
         errors.append(f".github/build-config.env VERSION looks invalid: {version}")
 
+    x86_imagebuilder_url = config.get(X86_IMAGEBUILDER_URL_KEY)
+    if not x86_imagebuilder_url:
+        errors.append(f".github/build-config.env must define {X86_IMAGEBUILDER_URL_KEY}")
+    elif not x86_imagebuilder_url.startswith("https://"):
+        errors.append(f".github/build-config.env {X86_IMAGEBUILDER_URL_KEY} must be an https URL")
+
     for path in WORKFLOWS:
         text = read_text(path)
         display = path.relative_to(ROOT).as_posix()
@@ -99,6 +106,16 @@ def main() -> int:
     st1 = ROOT / ".github" / "workflows" / "St1_Build-Rootfs-release.yml"
     if "steps.build_config.outputs.version" not in read_text(st1):
         errors.append("St1_Build-Rootfs-release.yml: build config version output is not used")
+
+    st1_x86 = ROOT / ".github" / "workflows" / "St1_Build-x86_64-release.yml"
+    if not st1_x86.exists():
+        errors.append("St1_Build-x86_64-release.yml is missing")
+    else:
+        st1_x86_text = read_text(st1_x86)
+        if X86_IMAGEBUILDER_URL_KEY not in st1_x86_text:
+            errors.append("St1_Build-x86_64-release.yml: x86_64 ImageBuilder URL is not read from build-config.env")
+        if "bin/targets/x86/64" not in st1_x86_text:
+            errors.append("St1_Build-x86_64-release.yml: x86_64 output path is not referenced")
 
     for name in ["St2_Build-iStoreOS-ib.yml", "StX_Build-iStoreOS-src.yml"]:
         path = WORKFLOW_DIR / name
@@ -125,13 +142,16 @@ def main() -> int:
         if f"/releases/{version}/" not in repositories_conf:
             errors.append("arm64/repositories.conf does not reference the configured VERSION")
 
-    package_dir = ROOT / "arm64" / "package-lists"
-    for path in sorted(package_dir.glob("*.txt")):
-        entries = collect_list_entries(path)
-        package_dupes = duplicates(entries)
-        if package_dupes:
-            display = path.relative_to(ROOT).as_posix()
-            errors.append(f"{display}: duplicate package entries: {', '.join(package_dupes[:5])}")
+    for package_dir in [ROOT / "arm64" / "package-lists", ROOT / "x86_64" / "package-lists"]:
+        if not package_dir.exists():
+            errors.append(f"{package_dir.relative_to(ROOT).as_posix()} is missing")
+            continue
+        for path in sorted(package_dir.glob("*.txt")):
+            entries = collect_list_entries(path)
+            package_dupes = duplicates(entries)
+            if package_dupes:
+                display = path.relative_to(ROOT).as_posix()
+                errors.append(f"{display}: duplicate package entries: {', '.join(package_dupes[:5])}")
 
     if errors:
         print("Repository checks failed:")

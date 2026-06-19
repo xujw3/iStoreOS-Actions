@@ -26,7 +26,13 @@ gh workflow run St2_Build-iStoreOS-ib.yml \
   -f openwrt_rootfs=RELEASE \
   -f network_settings=dhcp
 
-# 3) 备用 SNAPSHOT 路径：下载外部预构建 rootfs 后打包设备固件
+# 3) 构建 x86_64 通用固件镜像（不经过 ophub 打包）
+gh workflow run St1_Build-x86_64-release.yml \
+  -f network_settings=dhcp \
+  -f ipaddr=192.168.5.88 \
+  -f gateway=192.168.5.1
+
+# 4) 备用 SNAPSHOT 路径：下载外部预构建 rootfs 后打包设备固件
 gh workflow run StX_Build-iStoreOS-src.yml \
   -f openwrt_board=s905d_s905x3_s912_s922x-ct2000 \
   -f openwrt_kernel=6.6.y \
@@ -37,7 +43,7 @@ gh workflow run StX_Build-iStoreOS-src.yml \
 
 ```bash
 # Shell 脚本语法检查
-bash -n arm64/build24.sh shell/*.sh
+bash -n arm64/build24.sh x86_64/build24.sh shell/*.sh
 sh -n files/etc/uci-defaults/99-custom.sh files/etc/rc.local
 
 # 检查补丁中的空白错误
@@ -91,7 +97,9 @@ make clean
 - `.github/workflows/St1_Build-Rootfs-release.yml`：下载指定版本的 iStoreOS ImageBuilder，复制本仓库的构建脚本、rootfs overlay 和本地 `.ipk`，根据输入选择 static/dhcp 首次启动网络配置，构建 `armsr/armv8` 的 `generic-rootfs.tar.gz`，并发布到 `iStoreOS-${VERSION}-RELEASE-${network_settings}`。
 - `.github/workflows/St2_Build-iStoreOS-ib.yml`：从本仓库 Release 下载 St1 产出的 rootfs，调用 `ophub/amlogic-s9xxx-openwrt@main` 为所选 `openwrt_board` 和内核系列打包 `.img.gz`，再上传到同一个版本/网络配置对应的 Release。
 - `.github/workflows/StX_Build-iStoreOS-src.yml`：备用打包路径，rootfs 来自 `Kwonelee/Rootfs-Actions` 的 `generic-rootfs` Release，打包 action 使用 `Kwonelee/amlogic-s9xxx-openwrt@main`，产物发布为 SNAPSHOT。
+- `.github/workflows/St1_Build-x86_64-release.yml`：下载 KoolCenter 的 x86_64 ImageBuilder，使用 `x86_64/build24.sh` 构建 `x86/64` 的通用 `.img.gz`/manifest 产物并上传到独立 Release；x86_64 不经过 ophub 打包。
 - `arm64/build24.sh`：rootfs 的主要包清单和构建入口。它会 source `custom-packages.sh`，按 iStoreOS 24.10 组件清单组装 `PACKAGES`，追加/排除本地第三方插件，最后执行 `make image PROFILE=generic PACKAGES="$PACKAGES" FILES="files"`。
+- `x86_64/build24.sh`：x86_64 构建入口。默认复用 x86_64 ImageBuilder profile 自带官方包集合，只追加 `x86_64/package-lists/` 和 `CUSTOM_PACKAGES`，避免混用 arm64 包清单或 aarch64 本地 `.ipk`。
 - `shell/custom-packages.sh`：仓库外第三方插件开关和移除组件开关；通过向 `CUSTOM_PACKAGES` 追加包名或 `-包名` 影响最终 ImageBuilder 包集合。
 - `shell/prepare-packages.sh`：当启用仓库外插件时，整理 `extra-packages` 中的 `.run`/`.ipk` 到 ImageBuilder 的 `packages/` 本地软件源。
 - `arm64/Makefile`：随 ImageBuilder 使用的 OpenWrt Makefile 变体，包解析指向 `repositories.conf` 和本地 `packages/`；常用目标包括 `image`、`manifest`、`package_depends`、`package_whatdepends`。
@@ -99,7 +107,7 @@ make clean
 
 ## 修改时需要同步的点
 
-- 版本号集中出现在三个 workflow 的 `env.VERSION`，以及 `arm64/repositories.conf` 的 OpenWrt 版本/内核 kmods URL。升级 iStoreOS/OpenWrt 版本时要同时检查这些位置，并确认 St1 Release tag 与 St2 下载 URL 仍匹配。
+- 版本号集中在 `.github/build-config.env` 的 `VERSION`；arm64 还要同步检查 `arm64/repositories.conf` 的 OpenWrt 版本/内核 kmods URL。升级 iStoreOS/OpenWrt 版本时要确认 St1 Release tag 与 St2 下载 URL 仍匹配，并检查 `X86_64_IMAGEBUILDER_URL` 是否指向期望的 x86_64 ImageBuilder。
 - `St1_Build-Rootfs-release.yml` 通过 `sed` 行号删除 `99-custom.sh` 中的 static 或 dhcp 网络配置块。改动 `files/etc/uci-defaults/99-custom.sh` 的网络配置块时，必须同步更新 workflow 中的删除行号，否则会保留错误配置或删错内容。
 - `St2_Build-iStoreOS-ib.yml` 与 `StX_Build-iStoreOS-src.yml` 维护了几乎相同的 `openwrt_board` 选项列表；新增或重命名设备时通常要同步两个 workflow，并按需更新 `README.md` 的支持设备表。
-- `files/packages/**` 中新增 `.ipk` 后，若希望默认集成，需要在 `arm64/build24.sh` 末尾的第三方可选插件区域取消/新增对应包名；仅放入目录不会自动安装。
+- `files/packages/**` 当前按 arm64/aarch64 本地 ipk 使用；新增 `.ipk` 后若希望 arm64 默认集成，需要在 `arm64/package-lists/local-default.txt` 添加包名。x86_64 不会复制该目录，需使用 `files/packages-x86_64/` 或 `files/packages-common/` 并在 `x86_64/package-lists/local-default.txt` 添加包名；仅放入目录不会自动安装。
