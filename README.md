@@ -289,7 +289,7 @@ iStoreOS-24.10.6-x86_64-RELEASE-static
 ```
 
 > [!NOTE]
-> x86_64 workflow 默认复用官方 x86_64 ImageBuilder profile 的包集合，仅叠加本仓库 `files/` overlay 和 `x86_64/package-lists/` 中的追加/排除项。`files/packages/` 中现有本地 ipk 多为 `aarch64_generic`，不会复制到 x86_64 构建中。
+> x86_64 workflow 默认复用官方 x86_64 ImageBuilder profile 的包集合，并默认集成 `daed`、`luci-app-daede`、`vmlinux-btf`。`daed` / LuCI 包来自 [kenzok8/openwrt-daede](https://github.com/kenzok8/openwrt-daede) 的 24.10 x86_64 预编译 feed，`vmlinux-btf` 用于补齐 eBPF 运行所需 BTF。`files/packages/` 中现有本地 ipk 多为 `aarch64_generic`，不会复制到 x86_64 构建中。
 
 ### 6. 下载 Release 产物
 
@@ -425,6 +425,7 @@ DHCP 模式会在首次启动时检测物理网口：
 | AdGuardHome | `luci-app-adguardhome` | 📦 本地可选 | 已放入本地 ipk，默认未启用 |
 | OpenList2 | `openlist2`、`luci-app-openlist2` | 📦 本地可选 | 已放入本地 ipk，默认未启用 |
 | FileBrowser Go | `filebrowser`、`luci-app-filebrowser-go` | 📦 本地可选 | 已放入本地 ipk，默认未启用 |
+| daede | `daed`、`luci-app-daede`、`vmlinux-btf` | ✅ x86_64 默认集成 | x86_64 构建时从 kenzok8 预编译 feed 下载，用于 dae/daed 透明代理管理 |
 | 其他依赖 | `perlbase-*` 等 | 按需使用 | 供部分插件依赖 |
 
 ARM 对应开关位于 `arm64/package-lists/`：
@@ -434,7 +435,15 @@ arm64/package-lists/local-default.txt   # 当前默认集成的本地包
 arm64/package-lists/local-optional.txt  # 已放入仓库但默认不安装的示例
 ```
 
-x86_64 对应开关位于 `x86_64/package-lists/`，当前默认不集成本地 ipk。
+x86_64 对应开关位于 `x86_64/package-lists/`。当前默认集成：
+
+```text
+daed
+luci-app-daede
+vmlinux-btf
+```
+
+其中 `daed` / `luci-app-daede` 会在构建时从 kenzok8 的 daede 预编译 feed 下载到 ImageBuilder 本地源；`vmlinux-btf` 会按 `.github/build-config.env` 中的内核版本和 sha256 从 `kenzok8/vmlinux-btf` 下载。
 
 ARM 当前默认集成：
 
@@ -1041,7 +1050,7 @@ default: "s905d_s905x3_s912_s922x-ct2000"
 
 | 文件 | 需要检查的内容 |
 |---|---|
-| `.github/build-config.env` | `VERSION`，影响 Release tag、下载 URL、文件名；`X86_64_IMAGEBUILDER_URL` 指向 x86_64 ImageBuilder |
+| `.github/build-config.env` | `VERSION`，影响 Release tag、下载 URL、文件名；`X86_64_IMAGEBUILDER_URL` 指向 x86_64 ImageBuilder；`X86_64_VMLINUX_BTF_VERSION` / `X86_64_VMLINUX_BTF_SHA256` 控制 x86_64 daede 的 BTF 包 |
 | `.github/workflows/St1_Build-Rootfs-release.yml` | `build_version.options`、ARM ImageBuilder 下载地址 |
 | `.github/workflows/St1_Build-x86_64-release.yml` | x86_64 ImageBuilder 下载、产物路径和 Release 规则 |
 | `.github/workflows/St2_Build-iStoreOS-ib.yml` | 确保 St2 下载 tag 与 St1 上传 tag 匹配 |
@@ -1069,7 +1078,7 @@ src/gz openwrt_kmods https://downloads.openwrt.org/releases/24.10.6/targets/arms
 ### 推荐升级流程
 
 1. 新增或修改 ARM St1 `build_version`。
-2. 修改 `.github/build-config.env` 中的 `VERSION`，并按需更新 `X86_64_IMAGEBUILDER_URL`。
+2. 修改 `.github/build-config.env` 中的 `VERSION`，并按需更新 `X86_64_IMAGEBUILDER_URL`、`X86_64_VMLINUX_BTF_VERSION` 和 `X86_64_VMLINUX_BTF_SHA256`。
 3. 更新 `arm64/repositories.conf`。
 4. 暂时减少自定义插件，先构建最小可用 rootfs / x86_64 镜像。
 5. 逐个恢复本地 ipk 和第三方插件；x86_64 只使用兼容的 `x86_64` 或 `all` 包。

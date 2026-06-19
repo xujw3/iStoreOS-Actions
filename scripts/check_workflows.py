@@ -12,6 +12,8 @@ BUILD_CONFIG = ROOT / ".github" / "build-config.env"
 BOARD_LIST = ROOT / "config" / "openwrt_boards.txt"
 DEFAULT_BOARD = "s905d_s905x3_s912_s922x-ct2000"
 X86_IMAGEBUILDER_URL_KEY = "X86_64_IMAGEBUILDER_URL"
+X86_VMLINUX_BTF_VERSION_KEY = "X86_64_VMLINUX_BTF_VERSION"
+X86_VMLINUX_BTF_SHA256_KEY = "X86_64_VMLINUX_BTF_SHA256"
 
 
 def read_text(path: Path) -> str:
@@ -88,6 +90,18 @@ def main() -> int:
     elif not x86_imagebuilder_url.startswith("https://"):
         errors.append(f".github/build-config.env {X86_IMAGEBUILDER_URL_KEY} must be an https URL")
 
+    x86_btf_version = config.get(X86_VMLINUX_BTF_VERSION_KEY)
+    if not x86_btf_version:
+        errors.append(f".github/build-config.env must define {X86_VMLINUX_BTF_VERSION_KEY}")
+    elif not re.fullmatch(r"\d+\.\d+\.\d+", x86_btf_version):
+        errors.append(f".github/build-config.env {X86_VMLINUX_BTF_VERSION_KEY} looks invalid: {x86_btf_version}")
+
+    x86_btf_sha256 = config.get(X86_VMLINUX_BTF_SHA256_KEY)
+    if not x86_btf_sha256:
+        errors.append(f".github/build-config.env must define {X86_VMLINUX_BTF_SHA256_KEY}")
+    elif not re.fullmatch(r"[0-9a-f]{64}", x86_btf_sha256):
+        errors.append(f".github/build-config.env {X86_VMLINUX_BTF_SHA256_KEY} must be a lowercase sha256")
+
     for path in WORKFLOWS:
         text = read_text(path)
         display = path.relative_to(ROOT).as_posix()
@@ -114,6 +128,8 @@ def main() -> int:
         st1_x86_text = read_text(st1_x86)
         if X86_IMAGEBUILDER_URL_KEY not in st1_x86_text:
             errors.append("St1_Build-x86_64-release.yml: x86_64 ImageBuilder URL is not read from build-config.env")
+        if X86_VMLINUX_BTF_VERSION_KEY not in st1_x86_text or X86_VMLINUX_BTF_SHA256_KEY not in st1_x86_text:
+            errors.append("St1_Build-x86_64-release.yml: x86_64 vmlinux-btf metadata is not read from build-config.env")
         if "bin/targets/x86/64" not in st1_x86_text:
             errors.append("St1_Build-x86_64-release.yml: x86_64 output path is not referenced")
 
