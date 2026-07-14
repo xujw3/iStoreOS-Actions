@@ -116,7 +116,7 @@ jobs:
           done
 
       - name: 🚀 上传到 Release
-        uses: softprops/action-gh-release@v2.2.1
+        uses: softprops/action-gh-release@v3.0.2
         with:
           tag_name: ${{ inputs.release_tag }}
           body: ${{ inputs.release_body }}
