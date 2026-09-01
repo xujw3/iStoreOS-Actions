@@ -69,7 +69,7 @@ jobs:
 
       - name: 🧱 打包iStoreOS固件（ophub）
         if: inputs.package_action == 'ophub'
-        uses: ophub/amlogic-s9xxx-openwrt@c27a1dec98f1cd8f0212297e629243b35fa98534
+        uses: ophub/amlogic-s9xxx-openwrt@dfb38b90d0e322081e1292edb2e17a8cff75a8da
         with:
           openwrt_path: ${{ steps.find_rootfs.outputs.file }}
           openwrt_board: ${{ inputs.openwrt_board }}
